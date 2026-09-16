@@ -1,5 +1,6 @@
 """Smoke tests for tools/bridge: transcript helpers and scheduling templates."""
 import pathlib
+import platform
 import sys
 
 import pytest
@@ -39,12 +40,17 @@ def test_sched_templates():
     assert sched.build_command("", "", "echo hi") == "echo hi"
     with pytest.raises(ValueError):
         sched.build_command("opencode", "do work", "")
+
+
+@pytest.mark.skipif(platform.system() != "Windows", reason="scheduler is Windows-only")
+def test_sched_add_validation():
     with pytest.raises(ValueError):
         sched.add("bad name!", "echo hi", "23:59", False, "2026-01-01")
     with pytest.raises(ValueError):
         sched.add("ok", "echo hi", "25:00", True, "")
 
 
+@pytest.mark.skipif(platform.system() != "Windows", reason="scheduler is Windows-only")
 def test_sched_rejects_bad_dates():
     with pytest.raises(ValueError):
         sched.add("ok", "echo hi", "23:59", False, "01/02/2026")

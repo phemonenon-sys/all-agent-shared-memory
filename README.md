@@ -50,7 +50,7 @@ Both installers are idempotent, back up every config they touch, and wire:
 3. opencode `instructions` + `ai_memory` MCP server (`~/.config/opencode/opencode.json`).
 4. Codex `[mcp_servers.ai_memory]` (`~/.codex/config.toml`).
 5. Managed `AGENTS.md` blocks for Codex and ZCode (targets listed in `hosts.json`).
-6. Gemini CLI: add `@~/.agents/memory/MEMORY.md` to `~/.gemini/GEMINI.md` (one line, manual).
+6. Gemini CLI: `@~/.agents/memory/MEMORY.md` import is added automatically when `~/.gemini` exists.
 
 Note: when patching `settings.json` / `opencode.json`, the installer rewrites the file through a JSON round-trip (formatting may change; comments are not valid in these files anyway). Every touched file is backed up as `*.bak-asm-*` first.
 
@@ -140,7 +140,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\uninstall.ps1         
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\uninstall.ps1 -RemoveStore  # also delete the store
 ```
 
-It reverses the Claude hook, the opencode `ai_memory` + instruction entry, the Codex `[mcp_servers.ai_memory]` section and the managed `AGENTS.md` blocks, keeping `*.bak-uninstall-*` backups of every touched file.
+```bash
+bash tools/uninstall.sh [--remove-store] [--with-bridge]   # Linux / macOS
+```
+
+It reverses the Claude hook, the opencode `ai_memory` + `agent_bridge` entries, the Codex `[mcp_servers.*]`
+sections, the managed `AGENTS.md` blocks, the `~/.agents/agent-bridge` deployment, `AgentScheduler\*` tasks
+that belong to the bridge, and the Gemini import line - keeping `*.bak-uninstall-*` backups of every touched file.
 
 ## License
 

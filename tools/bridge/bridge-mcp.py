@@ -146,7 +146,7 @@ TOOLS = [
     },
     {
         "name": "schedule_add",
-        "description": "Schedule an agent task on this Windows machine (Task Scheduler). agent=claude runs 'claude -p', agent=codex runs 'codex exec', or pass a raw command.",
+        "description": "Schedule an agent task (Windows-only, via Task Scheduler; on Linux/macOS use cron). agent=claude runs 'claude -p', agent=codex runs 'codex exec', or pass a raw command.",
         "inputSchema": {
             "type": "object",
             "properties": {

@@ -12,7 +12,7 @@ Source lives here; `install.ps1 -WithBridge` deploys it to `~/.agents/agent-brid
 | See every session | `bridge.py list` (Claude projects, Codex rollouts + archived, opencode DB, ZCode transcripts) |
 | Search all history | `bridge.py search --query "frozen model"` |
 | Use from inside any agent | MCP server `agent_bridge` -> `sessions_agents`, `sessions_list`, `session_read`, `session_search` |
-| Schedule agent work | MCP -> `schedule_add` / `schedule_list` / `schedule_remove` (Windows Task Scheduler; logs to `~/.agents/scheduler/logs/`) |
+| Schedule agent work | MCP -> `schedule_add` / `schedule_list` / `schedule_remove` (Windows Task Scheduler; logs to `~/.agents/scheduler/logs/`). **Windows-only** - on Linux/macOS use cron; the sessions_* tools work on every OS |
 
 Scheduling templates: `agent=claude` -> `claude -p "<prompt>"`; `agent=codex` -> `codex exec "<prompt>"`;
 the opencode desktop app ships no headless CLI on PATH, so pass a raw `--command` if you wire one.

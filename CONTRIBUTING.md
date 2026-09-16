@@ -29,4 +29,5 @@ Conventional-ish (`fix:`, `feat:`, `docs:`, `chore:`), one logical change per co
 
 ## Reporting issues
 
-Use the issue template. For security concerns, do not open a public issue - describe the problem generally and ask for a private channel.
+Use the issue template. For security concerns, follow [SECURITY.md](SECURITY.md) - do not open a public issue for
+vulnerabilities.

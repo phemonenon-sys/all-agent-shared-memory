@@ -246,6 +246,34 @@ $memory
         if (Test-Path $codexToml) { Check 'codex mcp' ((Read-Text $codexToml) -match 'ai_memory') $codexToml }
         else { Skip 'codex mcp' 'no config.toml' }
 
+        # bridge (optional; warn-only so a -WithBridge install cannot silently rot)
+        $bridgePath = Join-Path (Split-Path $Root -Parent) 'agent-bridge'
+        $bridgeDeployed = Test-Path (Join-Path $bridgePath 'bridge-mcp.py')
+        $ocRaw = if (Test-Path $oc) { Read-Text $oc } else { '' }
+        $ctRaw = if (Test-Path $codexToml) { Read-Text $codexToml } else { '' }
+        $ocBridge = $ocRaw -match 'agent_bridge'
+        $ctBridge = $ctRaw -match 'agent_bridge'
+        $claudeJson = Join-Path $env:USERPROFILE '.claude.json'
+        $claudeBridge = (Test-Path $claudeJson) -and ((Read-Text $claudeJson) -match 'agent_bridge')
+        if (-not ($bridgeDeployed -or $ocBridge -or $ctBridge -or $claudeBridge)) {
+            Skip 'bridge' 'not deployed (optional: install.ps1 -WithBridge)'
+        } else {
+            if ($bridgeDeployed) { Check 'bridge files' $true $bridgePath }
+            else { Warn 'bridge files' "missing at $bridgePath - re-run install.ps1 -WithBridge" }
+            if (Test-Path $oc) {
+                if ($ocBridge) { Check 'bridge opencode' $true $oc } else { Warn 'bridge opencode' 'agent_bridge not registered' }
+            }
+            if (Test-Path $codexToml) {
+                if ($ctBridge) { Check 'bridge codex' $true $codexToml } else { Warn 'bridge codex' 'agent_bridge not registered' }
+            }
+            if (Test-Path $claudeJson) {
+                if ($claudeBridge) { Check 'bridge claude' $true 'claude mcp (user scope)' } else { Warn 'bridge claude' 'agent_bridge not registered' }
+            }
+            $tasksDir = Join-Path (Split-Path $Root -Parent) 'scheduler\tasks'
+            $taskCount = @(Get-ChildItem $tasksDir -Filter *.cmd -ErrorAction SilentlyContinue).Count
+            Write-Output ("[INFO] bridge scheduler tasks: {0}" -f $taskCount)
+        }
+
         $python = (Get-Command python -ErrorAction SilentlyContinue).Source
         if ($python) { Check 'python for MCP' $true $python } else { Check 'python for MCP' $false 'not found - MCP unavailable (CLI still works)' }
 

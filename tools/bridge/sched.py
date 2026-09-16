@@ -18,6 +18,7 @@ CLI:
 """
 import argparse
 import pathlib
+import platform
 import re
 import shutil
 import subprocess
@@ -30,6 +31,16 @@ PREFIX = "AgentScheduler"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,48}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+WINDOWS_ONLY_MESSAGE = (
+    "Scheduling is Windows-only (Windows Task Scheduler / schtasks). "
+    "On Linux/macOS use cron or systemd timers; the sessions_* bridge tools work on every OS."
+)
+
+
+def _require_windows() -> None:
+    if platform.system() != "Windows":
+        raise RuntimeError(WINDOWS_ONLY_MESSAGE)
 
 
 def _find_codex() -> str:
@@ -55,6 +66,7 @@ def build_command(agent: str, prompt: str, command: str) -> str:
 
 
 def add(name: str, command: str, time_str: str, daily: bool, date: str) -> str:
+    _require_windows()
     if not NAME_RE.match(name):
         raise ValueError("name must be alphanumeric/dot/dash, max 49 chars")
     if not TIME_RE.match(time_str):
@@ -87,6 +99,7 @@ def add(name: str, command: str, time_str: str, daily: bool, date: str) -> str:
 
 
 def remove(name: str) -> str:
+    _require_windows()
     if not NAME_RE.match(name):
         raise ValueError("bad task name")
     subprocess.run(["schtasks", "/Delete", "/F", "/TN", f"{PREFIX}\\{name}"], capture_output=True, text=True)
@@ -97,6 +110,8 @@ def remove(name: str) -> str:
 
 
 def list_tasks() -> str:
+    if platform.system() != "Windows":
+        return WINDOWS_ONLY_MESSAGE
     lines = []
     if TASKS.exists():
         for wrapper in sorted(TASKS.glob("*.cmd")):
