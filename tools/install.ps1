@@ -3,6 +3,7 @@ param(
     [string]$StorePath = (Join-Path $env:USERPROFILE '.agents\memory'),
     [string]$RepoRoot = '',
     [switch]$DryRun,
+    [switch]$WithBridge,
     [switch]$SkipClaude,
     [switch]$SkipOpencode,
     [switch]$SkipCodex,
@@ -174,6 +175,77 @@ elseif ($DryRun) {
     Say "  would run: mem.ps1 sync (updates managed blocks in hosts.json targets)"
 } else {
     & powershell -NoProfile -ExecutionPolicy Bypass -File $memPs1 sync
+}
+
+# 7. optional: agent-bridge (cross-agent session reading + scheduling)
+Step "Bridge (optional)"
+if (-not $WithBridge) {
+    Say "  skipped (pass -WithBridge to deploy agent-bridge and register the agent_bridge MCP server)"
+} else {
+    $bridgePath = Join-Path (Split-Path $StorePath -Parent) 'agent-bridge'
+    if ($DryRun) {
+        Say "  would deploy tools\bridge\* -> $bridgePath"
+        Say "  would register agent_bridge MCP in opencode / Codex / Claude Code"
+    } else {
+        New-Item -ItemType Directory -Force -Path $bridgePath | Out-Null
+        foreach ($file in @('bridge.py', 'bridge-mcp.py', 'sched.py', 'README.md')) {
+            Copy-Item (Join-Path $RepoRoot "tools\bridge\$file") (Join-Path $bridgePath $file) -Force
+        }
+        Say "  deployed -> $bridgePath"
+
+        $bridgeMcp = (Join-Path $bridgePath 'bridge-mcp.py').Replace('\', '/')
+        if (-not $SkipOpencode -and (Test-Path $oc)) {
+            $raw = Read-Text $oc
+            if ($raw -match 'agent_bridge') { Say "  opencode: already registered - skipped" }
+            else {
+                Backup $oc
+                try {
+                    $j = $raw | ConvertFrom-Json
+                    if (-not $j.mcp) { $j | Add-Member -NotePropertyName mcp -NotePropertyValue ([pscustomobject]@{}) -Force }
+                    $server = [pscustomobject]@{ type = 'local'; command = @($python, $bridgeMcp); enabled = $true }
+                    $j.mcp | Add-Member -NotePropertyName agent_bridge -NotePropertyValue $server -Force
+                    $new = $j | ConvertTo-Json -Depth 32
+                    $null = $new | ConvertFrom-Json
+                    Write-Text $oc $new
+                    Say "  opencode: registered mcp.agent_bridge"
+                } catch { Say "  opencode: registration failed ($($_.Exception.Message))" }
+            }
+        }
+        if (-not $SkipCodex -and (Test-Path $codexToml)) {
+            $raw = Read-Text $codexToml
+            if ($raw -match 'agent_bridge') { Say "  codex: already registered - skipped" }
+            else {
+                Backup $codexToml
+                $toml = "`r`n[mcp_servers.agent_bridge]`r`ncommand = '$python'`r`nargs = ['$(Join-Path $bridgePath 'bridge-mcp.py')']`r`nstartup_timeout_sec = 30`r`n"
+                Append-Text $codexToml $toml
+                Say "  codex: appended [mcp_servers.agent_bridge]"
+            }
+        }
+        $claudeCli = (Get-Command claude -ErrorAction SilentlyContinue).Source
+        if (-not $SkipClaude -and $claudeCli -and $python) {
+            try {
+                & $claudeCli mcp add -s user agent_bridge $python (Join-Path $bridgePath 'bridge-mcp.py') 2>&1 | Out-Null
+                Say "  claude: agent_bridge registered (user scope)"
+            } catch { Say "  claude: registration failed - run: claude mcp add -s user agent_bridge $python `"$(Join-Path $bridgePath 'bridge-mcp.py')`"" }
+        } elseif (-not $SkipClaude) {
+            Say "  claude: no claude CLI on PATH - register manually if needed"
+        }
+    }
+}
+
+# 8. optional: Gemini CLI import line
+Step "Gemini (optional)"
+$geminiDir = Join-Path $env:USERPROFILE '.gemini'
+$geminiFile = Join-Path $geminiDir 'GEMINI.md'
+if (-not (Test-Path $geminiDir)) {
+    Say "  no ~/.gemini - skipped (add '@$memMd' to your GEMINI.md if you install Gemini CLI)"
+} elseif ((Test-Path $geminiFile) -and ((Read-Text $geminiFile) -match 'agents[\\/]memory')) {
+    Say "  already wired - skipped"
+} elseif ($DryRun) {
+    Say "  would add '@$memMd' import to $geminiFile"
+} else {
+    [System.IO.File]::AppendAllText($geminiFile, "`r`n@$memMd`r`n", $Utf8NoBom)
+    Say "  added import -> $geminiFile"
 }
 
 Step "Done"

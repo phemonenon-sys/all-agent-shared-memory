@@ -21,6 +21,7 @@ The agent-memory space is crowded ([deja-vu](https://github.com/vshulcz/deja-vu)
 1. **Zero dependencies, zero binaries.** PowerShell and Python-stdlib scripts only. No Go/Rust/Node binary to install, no vector DB, no background service, no API keys. If you can read a script, you can audit your memory layer.
 2. **Static injection, not retrieval.** Each host loads `MEMORY.md` through its own native mechanism at session start, so memory is simply *in context* - nothing to query, nothing to forget to call.
 3. **Handoff elimination.** Ships the [session-mining playbook](docs/mining.md) that distills existing agent history (claude-mem, Codex, opencode, ZCode) into curated `projects\<name>.md` state files, so a brand-new agent can continue any project cold.
+4. **Cross-agent sessions + scheduling** (`tools/bridge`, optional via `-WithBridge`). Any agent can list/read/search every other agent's chats - Claude Code, Codex, opencode, ZCode - and schedule work in them. The retrieval layer, without the binary.
 
 Plus small things that matter: **secret-pattern refusal at write time** (keys/tokens never enter memory files), a **doctor** command that verifies every wiring point, **`prune`** so the hot layer cannot grow forever, and a **test suite + CI** (pytest, Pester, shellcheck) you can point at.
 
@@ -31,7 +32,7 @@ Plus small things that matter: **secret-pattern refusal at write time** (keys/to
 ```powershell
 git clone https://github.com/<you>/all-agent-shared-memory
 cd all-agent-shared-memory
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1        # add -DryRun to preview
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1 [-WithBridge] [-DryRun]
 ```
 
 **Linux / macOS** (bash, Python 3.10+ recommended):
@@ -39,7 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1        # a
 ```bash
 git clone https://github.com/<you>/all-agent-shared-memory
 cd all-agent-shared-memory
-bash tools/install.sh
+bash tools/install.sh [--with-bridge]
 ```
 
 Both installers are idempotent, back up every config they touch, and wire:
@@ -108,6 +109,7 @@ powershell -Command "Invoke-Pester -Path tests" # mem.ps1: hot log, managed bloc
     mem.ps1 / mem.sh       CLI (Windows / Unix)
     sessionstart-hook.ps1 / .sh   Claude Code hooks
     mem-mcp.py             stdio MCP server (stdlib only)
+    bridge\                cross-agent sessions + scheduler (optional; -WithBridge)
     dump\                  read-only history dumpers (claude-mem, opencode, split)
 docs/mining.md           history -> project files playbook
 examples\                MEMORY.template.md, PROJECT.template.md

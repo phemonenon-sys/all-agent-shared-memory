@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+- **agent-bridge folded in** (`tools/bridge/`): read every agent's chat sessions from any agent (Claude Code, Codex, opencode, ZCode), search across all of them, and schedule agent work via Windows Task Scheduler. MCP server `agent_bridge` exposes `sessions_agents`, `sessions_list`, `session_read`, `session_search`, `schedule_add`, `schedule_list`, `schedule_remove`.
+- `install.ps1 -WithBridge` / `install.sh --with-bridge` deploy the bridge and register its MCP server in Claude Code, Codex and opencode.
+- Gemini CLI wiring now happens automatically when `~/.gemini` exists.
+- `CONTRIBUTING.md`, bug-report issue template, and bridge smoke tests.
+
 ## [0.3.0] - 2026-09-16
 
 Reliability release:
