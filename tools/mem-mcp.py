@@ -36,7 +36,9 @@ MEM = ROOT / "MEMORY.md"
 LOG = ROOT / "log"
 PROJ = ROOT / "projects"
 SERVER_NAME = "ai-memory"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "0.3.0"
+MAX_FILE_BYTES = 1024 * 1024
+HOT_LINE_WARN = 150
 
 
 def read_text(path: pathlib.Path) -> str:
@@ -53,24 +55,66 @@ def memory_read() -> str:
     return body
 
 
-def memory_search(query: str, max_results: int = 50) -> str:
+def memory_search(query: str, max_results: int = 50, max_chars: int = 8000) -> str:
     query = (query or "").lower().strip()
     if not query:
         return "Provide a non-empty query."
     results = []
+    warnings = []
     candidates = [MEM]
     candidates += sorted(LOG.glob("*.md")) if LOG.is_dir() else []
     candidates += sorted(PROJ.glob("*.md")) if PROJ.is_dir() else []
     for path in candidates:
         if not path.is_file():
             continue
+        try:
+            if path.stat().st_size > MAX_FILE_BYTES:
+                warnings.append(f"skipped oversized file {path.name} ({path.stat().st_size // 1024} KB)")
+                continue
+        except OSError:
+            continue
         for number, line in enumerate(read_text(path).splitlines(), 1):
             if query in line.lower():
                 rel = path.relative_to(ROOT) if ROOT in path.parents else path.name
                 results.append(f"{rel}:{number}: {line.strip()}")
                 if len(results) >= max_results:
-                    return "\n".join(results)
-    return "\n".join(results) if results else f"No matches for: {query}"
+                    warnings.append(f"capped at {max_results} matches")
+                    break
+        if len(results) >= max_results:
+            break
+    if not results:
+        return f"No matches for: {query}"
+    output = "\n".join(results)
+    if len(output) > max_chars:
+        output = output[:max_chars] + f"\n... [truncated at {max_chars} chars]"
+    if warnings:
+        output += "\n" + "\n".join(f"warning: {w}" for w in warnings)
+    return output
+
+
+def memory_prune(keep: int = 50) -> str:
+    if not MEM.exists():
+        return "MEMORY.md not found."
+    keep = max(1, min(int(keep or 50), 1000))
+    lines = read_text(MEM).splitlines()
+    heading = None
+    for index, line in enumerate(lines):
+        if line.strip() == "## Hot log (auto)":
+            heading = index
+            break
+    if heading is None:
+        return "No '## Hot log (auto)' section found; nothing to prune."
+    head = lines[: heading + 1]
+    hot = [line for line in lines[heading + 1 :] if line.strip()]
+    kept = hot[-keep:]
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = MEM.with_suffix(f".md.bak-prune-{stamp}")
+    backup.write_text(read_text(MEM), encoding="utf-8")
+    MEM.write_text("\r\n".join(head + kept) + "\r\n", encoding="utf-8")
+    return (
+        f"Pruned hot log: kept last {len(kept)} of {len(hot)} entries "
+        f"({len(lines)} -> {len(head) + len(kept)} lines; backup: {backup.name})"
+    )
 
 
 def memory_add(text: str, project: str = "", hot: bool = False, agent: str = "", force: bool = False) -> str:
@@ -111,6 +155,12 @@ def memory_add(text: str, project: str = "", hot: bool = False, agent: str = "",
             body = body.rstrip() + "\n\n## Hot log (auto)\n"
         MEM.write_text(body.rstrip() + "\n" + line + "\n", encoding="utf-8")
         target_desc += " + MEMORY.md hot log"
+        line_count = len(read_text(MEM).splitlines())
+        if line_count > HOT_LINE_WARN:
+            target_desc += (
+                f" | warning: MEMORY.md is {line_count} lines (>{HOT_LINE_WARN}); prune recommended "
+                "(memory_prune or mem.ps1 prune -Keep 50)"
+            )
     return f"Saved to {target_desc}"
 
 
@@ -142,6 +192,7 @@ TOOLS = [
             "properties": {
                 "query": {"type": "string", "description": "Keyword or phrase to find."},
                 "max_results": {"type": "integer", "description": "Maximum matches to return (default 50)."},
+                "max_chars": {"type": "integer", "description": "Output size cap in characters (default 8000)."},
             },
             "required": ["query"],
             "additionalProperties": False,
@@ -168,11 +219,24 @@ TOOLS = [
         "description": "List the per-project memory files in the shared store.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
+    {
+        "name": "memory_prune",
+        "description": "Trim the MEMORY.md hot log to the last N entries (default 50) and back up the file first.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"keep": {"type": "integer", "description": "Entries to keep (default 50)."}},
+            "additionalProperties": False,
+        },
+    },
 ]
 
 DISPATCH = {
     "memory_read": lambda args: memory_read(),
-    "memory_search": lambda args: memory_search(args.get("query", ""), int(args.get("max_results") or 50)),
+    "memory_search": lambda args: memory_search(
+        args.get("query", ""),
+        int(args.get("max_results") or 50),
+        int(args.get("max_chars") or 8000),
+    ),
     "memory_add": lambda args: memory_add(
         args.get("text", ""),
         args.get("project", ""),
@@ -181,6 +245,7 @@ DISPATCH = {
         bool(args.get("force")),
     ),
     "memory_projects": lambda args: memory_projects(),
+    "memory_prune": lambda args: memory_prune(int(args.get("keep") or 50)),
 }
 
 

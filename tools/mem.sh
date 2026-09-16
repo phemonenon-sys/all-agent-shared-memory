@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # All-Agent Shared Memory - CLI for Linux / macOS / Git Bash.
-# Usage: mem.sh read|add|search|sync|status|doctor [-Text ...] [-Query ...] [-Project ...] [-Agent ...] [-Hot] [-Force]
+# Usage: mem.sh read|add|search|sync|status|doctor|prune [-Text ...] [-Query ...] [-Project ...] [-Agent ...] [-Hot] [-Force] [-Keep N]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,13 +12,14 @@ HOSTS="$ROOT/hosts.json"
 
 CMD="${1:-read}"
 if [ $# -gt 0 ]; then shift; fi
-TEXT=""; QUERY=""; PROJECT=""; AGENT="${AI_AGENT:-agent}"; HOT=0; FORCE=0
+TEXT=""; QUERY=""; PROJECT=""; AGENT="${AI_AGENT:-agent}"; HOT=0; FORCE=0; KEEP=50
 while [ $# -gt 0 ]; do
   case "$1" in
     -Text|--text) TEXT="${2:-}"; shift 2 ;;
     -Query|--query) QUERY="${2:-}"; shift 2 ;;
     -Project|--project) PROJECT="${2:-}"; shift 2 ;;
     -Agent|--agent) AGENT="${2:-}"; shift 2 ;;
+    -Keep|--keep) KEEP="${2:-50}"; shift 2 ;;
     -Hot|--hot) HOT=1; shift ;;
     -Force|--force) FORCE=1; shift ;;
     *) shift ;;
@@ -89,9 +90,48 @@ case "$CMD" in
 
   search)
     if [ -z "$QUERY" ]; then echo 'search requires -Query "..."' >&2; exit 2; fi
-    if ! grep -rni --include='*.md' -- "$QUERY" "$MEM" "$LOGDIR" "$PROJDIR" 2>/dev/null | sed "s|$ROOT/||"; then
+    SEARCHABLE=""
+    for f in "$MEM" "$LOGDIR"/*.md "$PROJDIR"/*.md; do
+      [ -f "$f" ] || continue
+      size=$(wc -c < "$f" | tr -d ' ')
+      if [ "$size" -gt 1048576 ]; then
+        echo "warning: skipped oversized file $(basename "$f") ($((size / 1024)) KB)" >&2
+      else
+        SEARCHABLE="$SEARCHABLE $f"
+      fi
+    done
+    if [ -z "$SEARCHABLE" ]; then echo "no matches for: $QUERY"; exit 0; fi
+    # shellcheck disable=SC2086
+    if ! grep -rni --include='*.md' -- "$QUERY" $SEARCHABLE 2>/dev/null | head -n 200 | sed "s|$ROOT/||"; then
       echo "no matches for: $QUERY"
     fi
+    ;;
+
+  prune)
+    if ! PY="$(find_python)"; then echo "prune requires python3 (or python/py)" >&2; exit 2; fi
+    "$PY" - "$MEM" "$KEEP" <<'PY'
+import datetime, pathlib, sys
+
+mem = pathlib.Path(sys.argv[1])
+keep = max(1, min(int(sys.argv[2] or 50), 1000))
+lines = mem.read_text(encoding="utf-8", errors="replace").splitlines()
+heading = None
+for index, line in enumerate(lines):
+    if line.strip() == "## Hot log (auto)":
+        heading = index
+        break
+if heading is None:
+    print("No '## Hot log (auto)' section found; nothing to prune.")
+    raise SystemExit(0)
+head = lines[: heading + 1]
+hot = [line for line in lines[heading + 1:] if line.strip()]
+kept = hot[-keep:]
+stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+backup = mem.with_name(mem.name + f".bak-prune-{stamp}")
+backup.write_text(mem.read_text(encoding="utf-8"), encoding="utf-8")
+mem.write_text("\n".join(head + kept) + "\n", encoding="utf-8")
+print(f"pruned hot log: kept last {len(kept)} of {len(hot)} entries ({len(lines)} -> {len(head) + len(kept)} lines; backup: {backup.name})")
+PY
     ;;
 
   sync)

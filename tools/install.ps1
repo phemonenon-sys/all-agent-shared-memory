@@ -129,8 +129,10 @@ else {
         try {
             $j = $raw | ConvertFrom-Json
             $memForward = $memMd.Replace('\', '/')
-            $instr = @($j.instructions) + $memForward
-            $j.instructions = $instr
+            $existing = @()
+            if ($j.instructions) { $existing = @($j.instructions) | Where-Object { $_ -and $_.ToString().Trim().Length -gt 0 } }
+            if (-not ($existing -contains $memForward)) { $existing += $memForward }
+            $j.instructions = $existing
             if (-not $j.mcp) { $j | Add-Member -NotePropertyName mcp -NotePropertyValue ([pscustomobject]@{}) -Force }
             $server = [pscustomobject]@{
                 type    = 'local'

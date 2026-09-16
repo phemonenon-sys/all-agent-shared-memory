@@ -1,16 +1,18 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('read', 'add', 'search', 'sync', 'status', 'doctor')]
+    [ValidateSet('read', 'add', 'search', 'sync', 'status', 'doctor', 'prune')]
     [string]$Command = 'read',
     [string]$Text = '',
     [string]$Query = '',
     [string]$Project = '',
     [string]$Agent = '',
+    [int]$Keep = 50,
     [switch]$Hot,
     [switch]$Force
 )
 
+$Version = '0.3.0'
 $ErrorActionPreference = 'Stop'
 $Root     = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $MemFile  = Join-Path $Root 'MEMORY.md'
@@ -39,6 +41,33 @@ function Append-HotLog([string]$Line) {
         [System.IO.File]::WriteAllText($MemFile, $content, $Utf8NoBom)
     }
     Append-Text $MemFile ($Line + "`r`n")
+}
+
+function Get-MemoryLineCount {
+    if (-not (Test-Path $MemFile)) { return 0 }
+    return (Get-Content $MemFile -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
+}
+
+function Invoke-Prune([int]$KeepLines) {
+    if (-not (Test-Path $MemFile)) { throw 'MEMORY.md not found' }
+    $lines = Get-Content $MemFile
+    $headingIndex = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^## Hot log \(auto\)') { $headingIndex = $i; break }
+    }
+    $before = $lines.Count
+    if ($headingIndex -lt 0) {
+        Write-Output "no '## Hot log (auto)' section found; nothing to prune"
+        return
+    }
+    $head = @($lines[0..$headingIndex])
+    $hot = @($lines[($headingIndex + 1)..($lines.Count - 1)] | Where-Object { $_.Trim().Length -gt 0 })
+    $kept = if ($hot.Count -gt $KeepLines) { @($hot[($hot.Count - $KeepLines)..($hot.Count - 1)]) } else { $hot }
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    Copy-Item $MemFile "$MemFile.bak-prune-$stamp" -Force
+    $result = ($head + $kept) -join "`r`n"
+    [System.IO.File]::WriteAllText($MemFile, $result + "`r`n", $Utf8NoBom)
+    Write-Output ("pruned hot log: kept last {0} of {1} entries ({2} -> {3} lines; backup: MEMORY.md.bak-prune-{4})" -f $kept.Count, $hot.Count, $before, (Get-MemoryLineCount), $stamp)
 }
 
 function Get-BlockTargets {
@@ -133,11 +162,24 @@ switch ($Command) {
         $files += Get-ChildItem $LogDir -Filter *.md -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
         $files += Get-ChildItem $ProjDir -Filter *.md -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
         if (-not $files) { Write-Output 'memory is empty'; break }
-        $hits = Select-String -Path $files -Pattern $Query -SimpleMatch -ErrorAction SilentlyContinue
+        $maxBytes = 1MB
+        $maxMatches = 200
+        $skipped = @()
+        $searchable = @()
+        foreach ($f in $files) {
+            $size = (Get-Item $f -ErrorAction SilentlyContinue).Length
+            if ($size -gt $maxBytes) { $skipped += "{0} ({1:N1} MB)" -f (Split-Path $f -Leaf), ($size / 1MB) }
+            else { $searchable += $f }
+        }
+        foreach ($s in $skipped) { Write-Output "warning: skipped oversized file $s" }
+        $hits = Select-String -Path $searchable -Pattern $Query -SimpleMatch -ErrorAction SilentlyContinue
         if (-not $hits) { Write-Output "no matches for: $Query"; break }
+        $count = 0
         foreach ($h in $hits) {
+            if ($count -ge $maxMatches) { Write-Output "warning: output capped at $maxMatches matches"; break }
             $rel = $h.Path.Replace($Root + '\', '')
             Write-Output ("{0}:{1}: {2}" -f $rel, $h.LineNumber, $h.Line.Trim())
+            $count++
         }
     }
 
@@ -170,9 +212,17 @@ $memory
             else { $script:doctorFails++; Write-Output ("[FAIL] {0} {1}" -f $Name, $Detail) }
         }
         function Skip([string]$Name, [string]$Detail) { Write-Output ("[SKIP] {0} {1}" -f $Name, $Detail) }
+        function Warn([string]$Name, [string]$Detail) { Write-Output ("[WARN] {0} {1}" -f $Name, $Detail) }
 
         Check 'store MEMORY.md' (Test-Path $MemFile) $MemFile
         Check 'store tools' ((Test-Path (Join-Path $Root 'tools\mem.ps1')) -and (Test-Path (Join-Path $Root 'tools\mem-mcp.py'))) 'mem.ps1 + mem-mcp.py'
+
+        $lineCount = Get-MemoryLineCount
+        if ($lineCount -gt 150) {
+            Warn 'MEMORY.md size' "$lineCount lines (>150) - hot layer is growing; run: mem.ps1 prune -Keep 50"
+        } else {
+            Check 'MEMORY.md size' $true "$lineCount lines"
+        }
 
         $memTime = Get-Item $MemFile -ErrorAction SilentlyContinue
         foreach ($target in (Get-BlockTargets)) {
@@ -221,8 +271,13 @@ $memory
         Write-Output ""; Write-Output 'doctor: all checks passed'
     }
 
+    'prune' {
+        Invoke-Prune -KeepLines $Keep
+    }
+
     'status' {
         $mem = Get-Item $MemFile -ErrorAction SilentlyContinue
+        Write-Output "version     : $Version"
         Write-Output "root        : $Root"
         if ($mem) { Write-Output ("MEMORY.md   : {0} bytes, {1} lines" -f $mem.Length, (Get-Content $MemFile -ErrorAction SilentlyContinue).Count) }
         else { Write-Output "MEMORY.md   : missing" }
