@@ -25,6 +25,16 @@ jobs:
           Install-Module Pester -Force -Scope CurrentUser -SkipPublisherCheck
           Invoke-Pester -Path tests -CI -Output Normal
 
+  leak-scan:
+    runs-on: ubuntu-latest
+    env:
+      LEAK_TERMS_B64: ${{ secrets.LEAK_TERMS_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/leak-scan.py --self-test --tree --history
+
   shell:
     runs-on: ubuntu-latest
     steps:

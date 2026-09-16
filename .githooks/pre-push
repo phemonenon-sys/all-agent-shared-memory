@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+# Pre-push leak guard: blocks pushes containing denylisted private-project terms.
+# Enable in this repo with:  git config core.hooksPath .githooks
+for candidate in python3 python py; do
+  if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c "import sys" >/dev/null 2>&1; then
+    PY="$candidate"
+    break
+  fi
+done
+if [ -z "${PY:-}" ]; then
+  echo "leak-scan: no working python found; push allowed but CI will still scan" >&2
+  exit 0
+fi
+"$PY" scripts/leak-scan.py --tree --history || {
+  echo "" >&2
+  echo "PUSH BLOCKED by .githooks/pre-push (private content detected above)." >&2
+  exit 1
+}
