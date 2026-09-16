@@ -45,7 +45,7 @@ function Append-HotLog([string]$Line) {
 
 function Get-MemoryLineCount {
     if (-not (Test-Path $MemFile)) { return 0 }
-    return (Get-Content $MemFile -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
+    return (Get-Content $MemFile -ErrorAction SilentlyContinue).Count
 }
 
 function Invoke-Prune([int]$KeepLines) {
