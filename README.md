@@ -156,6 +156,8 @@ that belong to the bridge, and the Gemini import line - keeping `*.bak-uninstall
 
 If this saved you a handoff or two, tips keep it maintained. USDT on **Tron (TRC20) only**:
 
+![USDT-TRC20 donation QR](assets/donate-qr.png)
+
 ```
 TVn8hALHvjmQTtVywqetthe8HNfPLYUnLj
 ```
