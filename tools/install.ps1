@@ -1,8 +1,10 @@
 [CmdletBinding()]
 param(
-    [string]$StorePath = (Join-Path $env:USERPROFILE '.agents\memory'),
+    [string]$StorePath = '',
+    [string]$HomeDir = '',
     [string]$RepoRoot = '',
     [switch]$DryRun,
+    [switch]$WithBridge,
     [switch]$SkipClaude,
     [switch]$SkipOpencode,
     [switch]$SkipCodex,
@@ -10,7 +12,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $HomeDir) { $HomeDir = $env:USERPROFILE }
+if (-not $StorePath) { $StorePath = Join-Path $HomeDir '.agents\memory' }
 if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path) }
+$RegisterClaudeCli = ($HomeDir -eq $env:USERPROFILE)
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Say([string]$msg) { Write-Output $msg }
@@ -31,6 +36,11 @@ function Backup([string]$Path) {
         Copy-Item $Path "$Path.bak-asm-$stamp" -Force
         Say "  backup -> $Path.bak-asm-$stamp"
     }
+}
+function Append-Text([string]$Path, [string]$Content) {
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    [System.IO.File]::WriteAllText($Path, (Read-Text $Path) + $Content, $Utf8NoBom)
 }
 
 Step "Installing All-Agent Shared Memory"
@@ -63,8 +73,8 @@ if (-not (Test-Path (Join-Path $StorePath 'MEMORY.md'))) {
 $hostsFile = Join-Path $StorePath 'hosts.json'
 if (-not (Test-Path $hostsFile)) {
     $targets = @()
-    $targets += (Join-Path $env:USERPROFILE '.codex\AGENTS.md')
-    $targets += (Join-Path $env:USERPROFILE '.zcode\workspace\default\AGENTS.md')
+    $targets += (Join-Path $HomeDir '.codex\AGENTS.md')
+    $targets += (Join-Path $HomeDir '.zcode\workspace\default\AGENTS.md')
     $cfg = [pscustomobject]@{ block_targets = $targets }
     if ($DryRun) { Say "  would write hosts.json with codex+zcode targets" } else { Write-Text $hostsFile ($cfg | ConvertTo-Json -Depth 4); Say "  wrote hosts.json" }
 }
@@ -76,7 +86,7 @@ $memMd = Join-Path $StorePath 'MEMORY.md'
 
 # 3. Claude Code: SessionStart hook
 Step "2/5 Claude Code (SessionStart hook)"
-$claudeSettings = Join-Path $env:USERPROFILE '.claude\settings.json'
+$claudeSettings = Join-Path $HomeDir '.claude\settings.json'
 if ($SkipClaude) { Say "  skipped (-SkipClaude)" }
 elseif (-not (Test-Path $claudeSettings)) { Say "  no ~/.claude/settings.json - skipped" }
 else {
@@ -87,35 +97,30 @@ else {
         Say "  would add hooks.SessionStart -> $hookPs1"
     } else {
         Backup $claudeSettings
-        $hook = @"
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File $($hookPs1 -replace '\\','\\')",
-            "timeout": 15
-          }
-        ]
-      }
-    ]
-  },
-"@
-        $i = $raw.IndexOf('{')
-        if ($i -lt 0) { Say "  WARN: settings.json is not an object - skipped" }
-        else {
-            $new = $raw.Substring(0, $i + 1) + "`r`n" + $hook + $raw.Substring($i + 1)
-            try { $null = $new | ConvertFrom-Json } catch { $new = $null }
-            if ($null -eq $new) { Say "  WARN: patched settings.json would be invalid - skipped (backup kept)" }
-            else { Write-Text $claudeSettings $new; Say "  added SessionStart hook" }
-        }
+        try {
+            $j = $raw | ConvertFrom-Json
+            if (-not $j.hooks) { $j | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force }
+            if (-not ($j.hooks.PSObject.Properties.Name -contains 'SessionStart')) {
+                $j.hooks | Add-Member -NotePropertyName SessionStart -NotePropertyValue @() -Force
+            }
+            $handler = [pscustomobject]@{
+                type    = 'command'
+                command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hookPs1"
+                timeout = 15
+            }
+            $group = [pscustomobject]@{ hooks = @($handler) }
+            $j.hooks.SessionStart = @($j.hooks.SessionStart) + $group
+            $new = $j | ConvertTo-Json -Depth 20
+            $null = $new | ConvertFrom-Json
+            Write-Text $claudeSettings $new
+            Say "  added SessionStart hook"
+        } catch { Say "  WARN: could not patch settings.json ($($_.Exception.Message)); backup kept" }
     }
 }
 
 # 4. opencode: instructions + MCP
 Step "3/5 opencode (instructions + MCP)"
-$oc = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
+$oc = Join-Path $HomeDir '.config\opencode\opencode.json'
 if ($SkipOpencode) { Say "  skipped (-SkipOpencode)" }
 elseif (-not (Test-Path $oc)) { Say "  no ~/.config/opencode/opencode.json - skipped" }
 else {
@@ -132,7 +137,8 @@ else {
             $existing = @()
             if ($j.instructions) { $existing = @($j.instructions) | Where-Object { $_ -and $_.ToString().Trim().Length -gt 0 } }
             if (-not ($existing -contains $memForward)) { $existing += $memForward }
-            $j.instructions = $existing
+            if ($j.PSObject.Properties.Name -contains 'instructions') { $j.instructions = $existing }
+            else { $j | Add-Member -NotePropertyName instructions -NotePropertyValue $existing -Force }
             if (-not $j.mcp) { $j | Add-Member -NotePropertyName mcp -NotePropertyValue ([pscustomobject]@{}) -Force }
             $server = [pscustomobject]@{
                 type    = 'local'
@@ -150,7 +156,7 @@ else {
 
 # 5. Codex: MCP registration
 Step "4/5 Codex (MCP + AGENTS.md sync)"
-$codexToml = Join-Path $env:USERPROFILE '.codex\config.toml'
+$codexToml = Join-Path $HomeDir '.codex\config.toml'
 if ($SkipCodex) { Say "  skipped (-SkipCodex)" }
 elseif (-not (Test-Path $codexToml)) { Say "  no ~/.codex/config.toml - skipped" }
 else {
@@ -176,8 +182,81 @@ elseif ($DryRun) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File $memPs1 sync
 }
 
+# 7. optional: agent-bridge (cross-agent session reading + scheduling)
+Step "Bridge (optional)"
+if (-not $WithBridge) {
+    Say "  skipped (pass -WithBridge to deploy agent-bridge and register the agent_bridge MCP server)"
+} else {
+    $bridgePath = Join-Path (Split-Path $StorePath -Parent) 'agent-bridge'
+    if ($DryRun) {
+        Say "  would deploy tools\bridge\* -> $bridgePath"
+        Say "  would register agent_bridge MCP in opencode / Codex / Claude Code"
+    } else {
+        New-Item -ItemType Directory -Force -Path $bridgePath | Out-Null
+        foreach ($file in @('bridge.py', 'bridge-mcp.py', 'sched.py', 'README.md')) {
+            Copy-Item (Join-Path $RepoRoot "tools\bridge\$file") (Join-Path $bridgePath $file) -Force
+        }
+        Say "  deployed -> $bridgePath"
+
+        $bridgeMcp = (Join-Path $bridgePath 'bridge-mcp.py').Replace('\', '/')
+        if (-not $SkipOpencode -and (Test-Path $oc)) {
+            $raw = Read-Text $oc
+            if ($raw -match 'agent_bridge') { Say "  opencode: already registered - skipped" }
+            else {
+                Backup $oc
+                try {
+                    $j = $raw | ConvertFrom-Json
+                    if (-not $j.mcp) { $j | Add-Member -NotePropertyName mcp -NotePropertyValue ([pscustomobject]@{}) -Force }
+                    $server = [pscustomobject]@{ type = 'local'; command = @($python, $bridgeMcp); enabled = $true }
+                    $j.mcp | Add-Member -NotePropertyName agent_bridge -NotePropertyValue $server -Force
+                    $new = $j | ConvertTo-Json -Depth 32
+                    $null = $new | ConvertFrom-Json
+                    Write-Text $oc $new
+                    Say "  opencode: registered mcp.agent_bridge"
+                } catch { Say "  opencode: registration failed ($($_.Exception.Message))" }
+            }
+        }
+        if (-not $SkipCodex -and (Test-Path $codexToml)) {
+            $raw = Read-Text $codexToml
+            if ($raw -match 'agent_bridge') { Say "  codex: already registered - skipped" }
+            else {
+                Backup $codexToml
+                $toml = "`r`n[mcp_servers.agent_bridge]`r`ncommand = '$python'`r`nargs = ['$(Join-Path $bridgePath 'bridge-mcp.py')']`r`nstartup_timeout_sec = 30`r`n"
+                Append-Text $codexToml $toml
+                Say "  codex: appended [mcp_servers.agent_bridge]"
+            }
+        }
+        $claudeCli = (Get-Command claude -ErrorAction SilentlyContinue).Source
+        if (-not $SkipClaude -and $claudeCli -and $python -and $RegisterClaudeCli) {
+            try {
+                & $claudeCli mcp add -s user agent_bridge $python (Join-Path $bridgePath 'bridge-mcp.py') 2>&1 | Out-Null
+                Say "  claude: agent_bridge registered (user scope)"
+            } catch { Say "  claude: registration failed - run: claude mcp add -s user agent_bridge $python `"$(Join-Path $bridgePath 'bridge-mcp.py')`"" }
+        } elseif (-not $SkipClaude -and -not $RegisterClaudeCli) {
+            Say "  claude: skipped (custom -HomeDir; register manually if needed)"
+        } elseif (-not $SkipClaude) {
+            Say "  claude: no claude CLI on PATH - register manually if needed"
+        }
+    }
+}
+
+# 8. optional: Gemini CLI import line
+Step "Gemini (optional)"
+$geminiDir = Join-Path $HomeDir '.gemini'
+$geminiFile = Join-Path $geminiDir 'GEMINI.md'
+if (-not (Test-Path $geminiDir)) {
+    Say "  no ~/.gemini - skipped (add '@$memMd' to your GEMINI.md if you install Gemini CLI)"
+} elseif ((Test-Path $geminiFile) -and ((Read-Text $geminiFile) -match 'agents[\\/]memory')) {
+    Say "  already wired - skipped"
+} elseif ($DryRun) {
+    Say "  would add '@$memMd' import to $geminiFile"
+} else {
+    [System.IO.File]::AppendAllText($geminiFile, "`r`n@$memMd`r`n", $Utf8NoBom)
+    Say "  added import -> $geminiFile"
+}
+
 Step "Done"
 Say "  store  : $StorePath"
 Say "  CLI    : powershell -NoProfile -File `"$memPs1`" read|add|search|sync|status"
-Say "  MCP    : ai_memory (memory_read / memory_search / memory_add / memory_projects)"
-Say "  Uninstall: remove the SessionStart hook from ~/.claude/settings.json, the ai_memory entries from opencode.json/config.toml, and delete the store."
+Say "  MCP    : ai_memory (memory_read / memory_search / memory_add / memory_projects / memory_prune)"
+Say "  Uninstall: powershell -NoProfile -File `"$(Join-Path $RepoRoot 'tools\uninstall.ps1')`" [-RemoveStore]"

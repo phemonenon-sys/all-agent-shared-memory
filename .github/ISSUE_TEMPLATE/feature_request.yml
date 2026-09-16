@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a capability for the memory layer or the bridge
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the workflow that is painful today, not just the feature you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should happen? Keep in mind the project's zero-dependency constraint.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - memory store / CLI
+        - MCP server
+        - agent wiring (Claude / Codex / opencode / ZCode / Gemini)
+        - bridge (sessions / scheduling)
+        - mining workflow
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Anything you tried, or why the obvious workaround is not enough.

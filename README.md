@@ -21,6 +21,7 @@ The agent-memory space is crowded ([deja-vu](https://github.com/vshulcz/deja-vu)
 1. **Zero dependencies, zero binaries.** PowerShell and Python-stdlib scripts only. No Go/Rust/Node binary to install, no vector DB, no background service, no API keys. If you can read a script, you can audit your memory layer.
 2. **Static injection, not retrieval.** Each host loads `MEMORY.md` through its own native mechanism at session start, so memory is simply *in context* - nothing to query, nothing to forget to call.
 3. **Handoff elimination.** Ships the [session-mining playbook](docs/mining.md) that distills existing agent history (claude-mem, Codex, opencode, ZCode) into curated `projects\<name>.md` state files, so a brand-new agent can continue any project cold.
+4. **Cross-agent sessions + scheduling** (`tools/bridge`, optional via `-WithBridge`). Any agent can list/read/search every other agent's chats - Claude Code, Codex, opencode, ZCode - and schedule work in them. The retrieval layer, without the binary.
 
 Plus small things that matter: **secret-pattern refusal at write time** (keys/tokens never enter memory files), a **doctor** command that verifies every wiring point, **`prune`** so the hot layer cannot grow forever, and a **test suite + CI** (pytest, Pester, shellcheck) you can point at.
 
@@ -31,7 +32,7 @@ Plus small things that matter: **secret-pattern refusal at write time** (keys/to
 ```powershell
 git clone https://github.com/phemonenon-sys/all-agent-shared-memory
 cd all-agent-shared-memory
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1        # add -DryRun to preview
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1 [-WithBridge] [-DryRun]
 ```
 
 **Linux / macOS** (bash, Python 3.10+ recommended):
@@ -39,7 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1        # a
 ```bash
 git clone https://github.com/phemonenon-sys/all-agent-shared-memory
 cd all-agent-shared-memory
-bash tools/install.sh
+bash tools/install.sh [--with-bridge]
 ```
 
 Both installers are idempotent, back up every config they touch, and wire:
@@ -49,7 +50,7 @@ Both installers are idempotent, back up every config they touch, and wire:
 3. opencode `instructions` + `ai_memory` MCP server (`~/.config/opencode/opencode.json`).
 4. Codex `[mcp_servers.ai_memory]` (`~/.codex/config.toml`).
 5. Managed `AGENTS.md` blocks for Codex and ZCode (targets listed in `hosts.json`).
-6. Gemini CLI: add `@~/.agents/memory/MEMORY.md` to `~/.gemini/GEMINI.md` (one line, manual).
+6. Gemini CLI: `@~/.agents/memory/MEMORY.md` import is added automatically when `~/.gemini` exists.
 
 Note: when patching `settings.json` / `opencode.json`, the installer rewrites the file through a JSON round-trip (formatting may change; comments are not valid in these files anyway). Every touched file is backed up as `*.bak-asm-*` first.
 
@@ -108,6 +109,7 @@ powershell -Command "Invoke-Pester -Path tests" # mem.ps1: hot log, managed bloc
     mem.ps1 / mem.sh       CLI (Windows / Unix)
     sessionstart-hook.ps1 / .sh   Claude Code hooks
     mem-mcp.py             stdio MCP server (stdlib only)
+    bridge\                cross-agent sessions + scheduler (optional; -WithBridge)
     dump\                  read-only history dumpers (claude-mem, opencode, split)
 docs/mining.md           history -> project files playbook
 examples\                MEMORY.template.md, PROJECT.template.md
@@ -138,7 +140,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\uninstall.ps1         
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\uninstall.ps1 -RemoveStore  # also delete the store
 ```
 
-It reverses the Claude hook, the opencode `ai_memory` + instruction entry, the Codex `[mcp_servers.ai_memory]` section and the managed `AGENTS.md` blocks, keeping `*.bak-uninstall-*` backups of every touched file.
+```bash
+bash tools/uninstall.sh [--remove-store] [--with-bridge]   # Linux / macOS
+```
+
+It reverses the Claude hook, the opencode `ai_memory` + `agent_bridge` entries, the Codex `[mcp_servers.*]`
+sections, the managed `AGENTS.md` blocks, the `~/.agents/agent-bridge` deployment, `AgentScheduler\*` tasks
+that belong to the bridge, and the Gemini import line - keeping `*.bak-uninstall-*` backups of every touched file.
 
 ## License
 

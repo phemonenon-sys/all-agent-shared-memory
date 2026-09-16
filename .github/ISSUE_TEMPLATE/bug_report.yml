@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in the memory layer, bridge or installers is broken
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please run `mem.ps1 doctor` (or `mem.sh doctor`) and paste the output below.
+  - type: input
+    id: os
+    attributes:
+      label: OS + shell
+      placeholder: "Windows 11 / PowerShell 5.1, or macOS / bash 5"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `mem.ps1 status` (version line) or the git tag/commit
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Which agent(s) are affected?
+      multiple: true
+      options:
+        - Claude Code
+        - Codex
+        - opencode
+        - ZCode
+        - Gemini CLI
+        - agent-bridge / sessions
+        - scheduler
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Expected vs actual, exact commands, error text.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor output
+      render: text
