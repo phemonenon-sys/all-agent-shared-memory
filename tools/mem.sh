@@ -179,7 +179,9 @@ PY
     else
       echo "MEMORY.md   : missing"
     fi
-    echo "log files   : $(ls -1 "$LOGDIR"/*.md 2>/dev/null | wc -l | tr -d ' ')   project files: $(ls -1 "$PROJDIR"/*.md 2>/dev/null | wc -l | tr -d ' ')"
+    log_count=$(find "$LOGDIR" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+    proj_count=$(find "$PROJDIR" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+    echo "log files   : $log_count   project files: $proj_count"
     while IFS= read -r target; do
       target="$(printf '%s' "$target" | tr -d '\r')"
       if [ -f "$target" ]; then echo "block       : $target"; else echo "block       : $target (missing - run sync)"; fi

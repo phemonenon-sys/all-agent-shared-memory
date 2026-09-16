@@ -141,7 +141,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\uninstall.ps1 -RemoveS
 ```
 
 ```bash
-bash tools/uninstall.sh [--remove-store] [--with-bridge]   # Linux / macOS
+bash tools/uninstall.sh [--remove-store]   # Linux / macOS
 ```
 
 It reverses the Claude hook, the opencode `ai_memory` + `agent_bridge` entries, the Codex `[mcp_servers.*]`

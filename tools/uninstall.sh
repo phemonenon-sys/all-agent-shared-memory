@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # All-Agent Shared Memory - uninstaller for Linux / macOS.
-# Usage: bash tools/uninstall.sh [store-path] [--remove-store] [--with-bridge]
+# Usage: bash tools/uninstall.sh [store-path] [--remove-store]
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOVE_STORE=0
-WITH_BRIDGE=0
 ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --remove-store) REMOVE_STORE=1 ;;
-    --with-bridge) WITH_BRIDGE=1 ;;
     *) ARGS+=("$arg") ;;
   esac
 done
