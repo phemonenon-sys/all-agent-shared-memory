@@ -2,6 +2,7 @@
 
 [![ci](https://github.com/phemonenon-sys/all-agent-shared-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/phemonenon-sys/all-agent-shared-memory/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![donate](https://img.shields.io/badge/donate-USDT%20TRC20-green)](https://github.com/phemonenon-sys/all-agent-shared-memory#donate)
 
 ![demo](assets/demo.gif)
 
@@ -150,6 +151,16 @@ bash tools/uninstall.sh [--remove-store]   # Linux / macOS
 It reverses the Claude hook, the opencode `ai_memory` + `agent_bridge` entries, the Codex `[mcp_servers.*]`
 sections, the managed `AGENTS.md` blocks, the `~/.agents/agent-bridge` deployment, `AgentScheduler\*` tasks
 that belong to the bridge, and the Gemini import line - keeping `*.bak-uninstall-*` backups of every touched file.
+
+## Donate
+
+If this saved you a handoff or two, tips keep it maintained. USDT on **Tron (TRC20) only**:
+
+```
+TVn8hALHvjmQTtVywqetthe8HNfPLYUnLj
+```
+
+Send **only USDT-TRC20** to that address — any other coin or network will be lost. No smart-contract deposits.
 
 ## License
 
