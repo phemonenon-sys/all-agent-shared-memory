@@ -8,7 +8,28 @@ import datetime
 import json
 import os
 import pathlib
+import re
 import sys
+
+SECRET_PATTERNS = [
+    ("AWS access key", re.compile(r"AKIA[0-9A-Z]{16}")),
+    ("Anthropic key", re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}")),
+    ("OpenAI-style key", re.compile(r"sk-[A-Za-z0-9]{20,}")),
+    ("GitHub token", re.compile(r"(?:ghp_|gho_|ghs_|ghr_)[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{22,}")),
+    ("Slack token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}")),
+    ("Google API key", re.compile(r"AIza[0-9A-Za-z_-]{35}")),
+    ("private key block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("JWT", re.compile(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}")),
+    ("key/token assignment", re.compile(r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S{16,}")),
+    ("bearer token", re.compile(r"(?i)bearer\s+[A-Za-z0-9\-_.]{20,}")),
+]
+
+
+def find_secret(text: str):
+    for label, pattern in SECRET_PATTERNS:
+        if pattern.search(text):
+            return label
+    return None
 
 ROOT = pathlib.Path(os.environ.get("AI_MEMORY_DIR", pathlib.Path.home() / ".agents" / "memory")).resolve()
 MEM = ROOT / "MEMORY.md"
@@ -52,9 +73,16 @@ def memory_search(query: str, max_results: int = 50) -> str:
     return "\n".join(results) if results else f"No matches for: {query}"
 
 
-def memory_add(text: str, project: str = "", hot: bool = False, agent: str = "") -> str:
+def memory_add(text: str, project: str = "", hot: bool = False, agent: str = "", force: bool = False) -> str:
     if not text or not text.strip():
         return "Provide non-empty text."
+    if not force:
+        label = find_secret(text)
+        if label:
+            return (
+                f"Refused: text matches secret pattern ({label}). Never store real credentials. "
+                "Only pass force=true if this is a confirmed false positive."
+            )
     now = datetime.datetime.now()
     agent = agent.strip() or os.environ.get("AI_AGENT", "agent")
     line = f"- {now.strftime('%Y-%m-%d %H:%M')} [{agent}] {text.strip()}"
@@ -129,6 +157,7 @@ TOOLS = [
                 "project": {"type": "string", "description": "Optional project name to store under projects/<name>.md instead of the monthly log."},
                 "hot": {"type": "boolean", "description": "Also append to MEMORY.md hot log so every agent sees it at session start."},
                 "agent": {"type": "string", "description": "Who is saving (e.g. claude, codex, glm, opencode)."},
+                "force": {"type": "boolean", "description": "Bypass the secret-pattern guard. Use only for confirmed false positives."},
             },
             "required": ["text"],
             "additionalProperties": False,
@@ -145,7 +174,11 @@ DISPATCH = {
     "memory_read": lambda args: memory_read(),
     "memory_search": lambda args: memory_search(args.get("query", ""), int(args.get("max_results") or 50)),
     "memory_add": lambda args: memory_add(
-        args.get("text", ""), args.get("project", ""), bool(args.get("hot")), args.get("agent", "")
+        args.get("text", ""),
+        args.get("project", ""),
+        bool(args.get("hot")),
+        args.get("agent", ""),
+        bool(args.get("force")),
     ),
     "memory_projects": lambda args: memory_projects(),
 }

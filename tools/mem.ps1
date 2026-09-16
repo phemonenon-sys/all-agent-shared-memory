@@ -1,13 +1,14 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('read', 'add', 'search', 'sync', 'status')]
+    [ValidateSet('read', 'add', 'search', 'sync', 'status', 'doctor')]
     [string]$Command = 'read',
     [string]$Text = '',
     [string]$Query = '',
     [string]$Project = '',
     [string]$Agent = '',
-    [switch]$Hot
+    [switch]$Hot,
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +54,26 @@ function Get-BlockTargets {
     )
 }
 
+function Test-TextSecret([string]$Value) {
+    $patterns = @(
+        'AKIA[0-9A-Z]{16}',
+        'sk-ant-[A-Za-z0-9_-]{20,}',
+        'sk-[A-Za-z0-9]{20,}',
+        'ghp_[A-Za-z0-9]{36}',
+        'github_pat_[A-Za-z0-9_]{22,}',
+        'xox[baprs]-[A-Za-z0-9-]{10,}',
+        'AIza[0-9A-Za-z_-]{35}',
+        '-----BEGIN [A-Z ]*PRIVATE KEY-----',
+        'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}',
+        '(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S{16,}',
+        '(?i)bearer\s+[A-Za-z0-9\-_\.]{20,}'
+    )
+    foreach ($pattern in $patterns) {
+        if ($Value -match $pattern) { return $pattern }
+    }
+    return $null
+}
+
 $Begin = '<!-- AI-MEMORY:BEGIN -->'
 $End   = '<!-- AI-MEMORY:END -->'
 
@@ -79,6 +100,12 @@ switch ($Command) {
 
     'add' {
         if (-not $Text) { throw 'add requires -Text "..."' }
+        if (-not $Force) {
+            $hit = Test-TextSecret $Text
+            if ($hit) {
+                throw "refused: text matches secret pattern '$hit'. Use -Force only for false positives; never store real credentials in memory files."
+            }
+        }
         $now = Get-Date
         $stamp = $now.ToString('yyyy-MM-dd HH:mm')
         $line = "- $stamp [$Agent] $Text"
@@ -134,6 +161,64 @@ $memory
             Update-ManagedBlock $target $body
             Write-Output "synced -> $target"
         }
+    }
+
+    'doctor' {
+        $script:doctorFails = 0
+        function Check([string]$Name, [bool]$Ok, [string]$Detail) {
+            if ($Ok) { Write-Output ("[PASS] {0} {1}" -f $Name, $Detail) }
+            else { $script:doctorFails++; Write-Output ("[FAIL] {0} {1}" -f $Name, $Detail) }
+        }
+        function Skip([string]$Name, [string]$Detail) { Write-Output ("[SKIP] {0} {1}" -f $Name, $Detail) }
+
+        Check 'store MEMORY.md' (Test-Path $MemFile) $MemFile
+        Check 'store tools' ((Test-Path (Join-Path $Root 'tools\mem.ps1')) -and (Test-Path (Join-Path $Root 'tools\mem-mcp.py'))) 'mem.ps1 + mem-mcp.py'
+
+        $memTime = Get-Item $MemFile -ErrorAction SilentlyContinue
+        foreach ($target in (Get-BlockTargets)) {
+            if (-not (Test-Path $target)) { Check "block $target" $false 'file missing - run sync'; continue }
+            $content = Read-Text $target
+            $has = $content -match [regex]::Escape($Begin)
+            if (-not $has) { Check "block $target" $false 'missing block - run sync' }
+            elseif ($memTime -and (Get-Item $target).LastWriteTime -lt $memTime.LastWriteTime) { Check "block $target" $false 'present but stale - run sync' }
+            else { Check "block $target" $true 'fresh' }
+        }
+
+        $claudeSettings = Join-Path $env:USERPROFILE '.claude\settings.json'
+        if (Test-Path $claudeSettings) { Check 'claude hook' ((Read-Text $claudeSettings) -match 'sessionstart-hook\.ps1') $claudeSettings }
+        else { Skip 'claude hook' 'no settings.json' }
+
+        $oc = Join-Path $env:USERPROFILE '.config\opencode\opencode.json'
+        if (Test-Path $oc) { Check 'opencode wiring' ((Read-Text $oc) -match 'ai_memory') $oc }
+        else { Skip 'opencode wiring' 'no opencode.json' }
+
+        $codexToml = Join-Path $env:USERPROFILE '.codex\config.toml'
+        if (Test-Path $codexToml) { Check 'codex mcp' ((Read-Text $codexToml) -match 'ai_memory') $codexToml }
+        else { Skip 'codex mcp' 'no config.toml' }
+
+        $python = (Get-Command python -ErrorAction SilentlyContinue).Source
+        if ($python) { Check 'python for MCP' $true $python } else { Check 'python for MCP' $false 'not found - MCP unavailable (CLI still works)' }
+
+        if ($python) {
+            try {
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName = $python
+                $psi.Arguments = '"' + (Join-Path $Root 'tools\mem-mcp.py') + '"'
+                $psi.RedirectStandardInput = $true
+                $psi.RedirectStandardOutput = $true
+                $psi.UseShellExecute = $false
+                $psi.CreateNoWindow = $true
+                $proc = [System.Diagnostics.Process]::Start($psi)
+                $proc.StandardInput.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"doctor","version":"0"}}}')
+                $proc.StandardInput.Close()
+                $null = $proc.WaitForExit(8000)
+                $out = $proc.StandardOutput.ReadToEnd()
+                Check 'mcp handshake' ($out -match 'serverInfo') 'initialize answered'
+            } catch { Check 'mcp handshake' $false $_.Exception.Message }
+        }
+
+        if ($script:doctorFails -gt 0) { Write-Output ""; Write-Output "doctor: $($script:doctorFails) problem(s) found"; exit 1 }
+        Write-Output ""; Write-Output 'doctor: all checks passed'
     }
 
     'status' {
