@@ -3,6 +3,8 @@
 [![ci](https://github.com/phemonenon-sys/all-agent-shared-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/phemonenon-sys/all-agent-shared-memory/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+![demo](assets/demo.gif)
+
 One small memory file that **every** coding agent reads at session start - Claude Code, Codex, opencode, ZCode, Gemini CLI - plus an append-only log, per-project memory files, and a tiny MCP server. No daemon, no database, no embeddings, no LLM in the memory path. The whole system is a few hundred readable lines: audit it before you trust it with your agents' memory.
 
 ```
@@ -113,6 +115,7 @@ powershell -Command "Invoke-Pester -Path tests" # mem.ps1: hot log, managed bloc
     dump\                  read-only history dumpers (claude-mem, opencode, split)
 docs/mining.md           history -> project files playbook
 examples\                MEMORY.template.md, PROJECT.template.md
+scripts\build-demo-gif.py  reproducible demo GIF generator (runs real commands, renders with Pillow)
 ```
 
 ## How each agent gets the memory
