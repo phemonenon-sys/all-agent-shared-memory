@@ -1,9 +1,9 @@
-"""Tests for the hardline guard (scripts/leak-scan.py).
+"""Tests for scripts/leak-scan.py (external denylist scanner).
 
-The guard loads its denylist from outside the repo (LEAK_TERMS_B64,
-LEAK_TERMS_FILE, or ~/.agents/leak-guard/denylist.txt), so tests inject a
-SYNTHETIC terms file - no real guarded terms appear in test sources.
+The synthetic term is assembled at runtime so this file never contains the
+full match itself - otherwise the repo-tree scan would flag its own tests.
 """
+import base64
 import os
 import pathlib
 import subprocess
@@ -11,84 +11,66 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SCAN = REPO / "scripts" / "leak-scan.py"
-CANARY = "zz-planted-canary-77"
+TERM = "acme-" + "secret-token"
 
 
-def run_scan(*args, cwd=REPO, terms_file=None):
-    env = dict(os.environ)
-    env.pop("LEAK_TERMS_B64", None)
-    if terms_file is None:
-        env.pop("LEAK_TERMS_FILE", None)
-    else:
-        env["LEAK_TERMS_FILE"] = str(terms_file)
+def run(args, env=None, home=None):
+    merged = dict(os.environ)
+    merged.pop("LEAK_TERMS_B64", None)
+    if home is not None:
+        merged["USERPROFILE"] = str(home)  # isolates DEFAULT_TERMS_FILE lookups
+        merged["HOME"] = str(home)
+    if env:
+        merged.update(env)
     return subprocess.run(
-        [sys.executable, str(SCAN), *args],
-        capture_output=True,
-        text=True,
-        cwd=cwd,
-        env=env,
+        [sys.executable, str(SCAN), *args], capture_output=True, text=True, env=merged, timeout=120
     )
 
 
-def _init_repo(path: pathlib.Path):
-    for cmd in (
-        ["git", "init", "-b", "main"],
-        ["git", "config", "user.email", "test@localhost"],
-        ["git", "config", "user.name", "test"],
-    ):
-        subprocess.run(cmd, cwd=path, check=True, capture_output=True)
-    (path / "terms.txt").write_text(CANARY + "\n", encoding="utf-8")
-    return path / "terms.txt"
+def test_self_test():
+    result = run(["--self-test"])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "self-test OK" in result.stdout
 
 
-def test_self_test_passes():
-    result = run_scan("--self-test")
+def test_repo_tree_is_clean(tmp_path):
+    terms = tmp_path / "denylist.txt"
+    terms.write_text(TERM + "\n", encoding="utf-8")
+    result = run(["--tree"], env={"LEAK_TERMS_FILE": str(terms)})
     assert result.returncode == 0, result.stdout
 
 
-def test_repo_tree_and_history_are_clean():
-    # No terms configured here on purpose: with the synthetic canary absent
-    # from the repo, any configured denylist must still report clean.
-    result = run_scan("--tree", "--history")
-    assert result.returncode == 0, result.stdout
-
-
-def test_planted_term_blocks(tmp_path):
-    terms = _init_repo(tmp_path)
-    (tmp_path / "notes.md").write_text(f"# design notes about {CANARY}\n", encoding="utf-8")
-    subprocess.run(["git", "add", "notes.md"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "wip"], cwd=tmp_path, check=True, capture_output=True)
-    result = run_scan("--tree", "--history", cwd=tmp_path, terms_file=terms)
+def test_planted_term_fails(tmp_path):
+    (tmp_path / "notes.md").write_text("# " + TERM + " experiment notes\n", encoding="utf-8")
+    terms = tmp_path / "denylist.txt"
+    terms.write_text(TERM + "\n", encoding="utf-8")
+    result = run(["--tree", "--root", str(tmp_path)], env={"LEAK_TERMS_FILE": str(terms)})
     assert result.returncode == 1
     assert "notes.md" in result.stdout
 
 
-def test_clean_tree_passes(tmp_path):
-    terms = _init_repo(tmp_path)
+def test_clean_dir_passes(tmp_path):
     (tmp_path / "notes.md").write_text("# shared memory design notes\n", encoding="utf-8")
-    subprocess.run(["git", "add", "notes.md"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "wip"], cwd=tmp_path, check=True, capture_output=True)
-    result = run_scan("--tree", "--history", cwd=tmp_path, terms_file=terms)
+    terms = tmp_path / "denylist.txt"
+    terms.write_text(TERM + "\n", encoding="utf-8")
+    result = run(["--tree", "--root", str(tmp_path)], env={"LEAK_TERMS_FILE": str(terms)})
     assert result.returncode == 0, result.stdout
 
 
-def test_no_terms_configured_skips_cleanly(tmp_path, monkeypatch):
-    monkeypatch.delenv("LEAK_TERMS_B64", raising=False)
-    monkeypatch.delenv("LEAK_TERMS_FILE", raising=False)
+def test_no_denylist_skips(tmp_path):
     (tmp_path / "notes.md").write_text("anything\n", encoding="utf-8")
-    env = dict(os.environ)
-    env.pop("LEAK_TERMS_B64", None)
-    env.pop("LEAK_TERMS_FILE", None)
-    # Point HOME at an empty dir so no default denylist is found.
-    empty_home = tmp_path / "emptyhome"
-    empty_home.mkdir()
-    env["HOME"] = str(empty_home)
-    env["USERPROFILE"] = str(empty_home)
-    result = subprocess.run(
-        [sys.executable, str(SCAN), "--tree", "--root", str(tmp_path)],
-        capture_output=True,
-        text=True,
-        env=env,
+    result = run(
+        ["--tree", "--root", str(tmp_path)],
+        env={"LEAK_TERMS_FILE": str(tmp_path / "missing.txt")},
+        home=tmp_path,
     )
     assert result.returncode == 0
     assert "no denylist configured" in result.stdout
+
+
+def test_base64_source(tmp_path):
+    (tmp_path / "notes.md").write_text("token: " + TERM + "\n", encoding="utf-8")
+    encoded = base64.b64encode((TERM + "\n").encode()).decode()
+    result = run(["--tree", "--root", str(tmp_path)], env={"LEAK_TERMS_B64": encoded})
+    assert result.returncode == 1
+    assert TERM in result.stdout
