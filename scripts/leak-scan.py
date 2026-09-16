@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 r"""leak-scan - block private-project content from reaching public repos.
 
-Scans the working tree (or a plain directory) and the full git history for
-terms configured OUTSIDE this repository:
+Scans the working tree (or a plain directory) and the git history of local
+branches, tags and HEAD (not remote-tracking refs, which reflect what is
+already public rather than what is being pushed) for terms configured
+OUTSIDE this repository:
 
   1. env LEAK_TERMS_B64   base64 of newline-separated regex terms (for CI secrets)
   2. env LEAK_TERMS_FILE  path to a terms file (one regex per line, # comments)
@@ -120,11 +122,13 @@ def scan_tree(root: pathlib.Path, patterns, skip_paths=frozenset()):
 
 
 def scan_history(root: pathlib.Path, patterns):
+    """Scan local branches + tags + HEAD. Remote-tracking refs are ignored:
+    they reflect what is already public, not what is being pushed."""
     repo = git_root(root)
     if not repo:
         return []
     proc = subprocess.Popen(
-        ["git", "log", "-p", "--all", "--format=\x1e%h %s"],
+        ["git", "log", "-p", "--branches", "--tags", "HEAD", "--format=%x1e%h %s"],
         cwd=root,
         stdout=subprocess.PIPE,
         text=True,
