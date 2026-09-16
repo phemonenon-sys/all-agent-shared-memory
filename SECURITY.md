@@ -5,7 +5,7 @@
 Please **do not open a public issue** for security problems.
 
 Use GitHub's private vulnerability reporting: go to the repository's **Security** tab →
-**Report a vulnerability** (direct link: `https://github.com/<you>/all-agent-shared-memory/security/advisories/new`).
+**Report a vulnerability** (direct link: `https://github.com/phemonenon-sys/all-agent-shared-memory/security/advisories/new`).
 If that is unavailable, open a minimal issue that says only "security report - please contact me" and a maintainer will
 follow up with a private channel.
 
