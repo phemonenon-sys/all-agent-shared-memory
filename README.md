@@ -1,6 +1,6 @@
 # All-Agent Shared Memory
 
-[![ci](https://github.com/<you>/all-agent-shared-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/<you>/all-agent-shared-memory/actions/workflows/ci.yml)
+[![ci](https://github.com/phemonenon-sys/all-agent-shared-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/phemonenon-sys/all-agent-shared-memory/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 One small memory file that **every** coding agent reads at session start - Claude Code, Codex, opencode, ZCode, Gemini CLI - plus an append-only log, per-project memory files, and a tiny MCP server. No daemon, no database, no embeddings, no LLM in the memory path. The whole system is a few hundred readable lines: audit it before you trust it with your agents' memory.
@@ -29,7 +29,7 @@ Plus small things that matter: **secret-pattern refusal at write time** (keys/to
 **Windows** (PowerShell 5.1+, Python 3.10+ recommended for MCP):
 
 ```powershell
-git clone https://github.com/<you>/all-agent-shared-memory
+git clone https://github.com/phemonenon-sys/all-agent-shared-memory
 cd all-agent-shared-memory
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1        # add -DryRun to preview
 ```
@@ -37,7 +37,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install.ps1        # a
 **Linux / macOS** (bash, Python 3.10+ recommended):
 
 ```bash
-git clone https://github.com/<you>/all-agent-shared-memory
+git clone https://github.com/phemonenon-sys/all-agent-shared-memory
 cd all-agent-shared-memory
 bash tools/install.sh
 ```
