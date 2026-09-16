@@ -1,5 +1,8 @@
 # All-Agent Shared Memory
 
+[![ci](https://github.com/<you>/all-agent-shared-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/<you>/all-agent-shared-memory/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 One small memory file that **every** coding agent reads at session start - Claude Code, Codex, opencode, ZCode, Gemini CLI - plus an append-only log, per-project memory files, and a tiny MCP server. No daemon, no database, no embeddings, no LLM in the memory path. The whole system is a few hundred readable lines: audit it before you trust it with your agents' memory.
 
 ```
@@ -19,7 +22,7 @@ The agent-memory space is crowded ([deja-vu](https://github.com/vshulcz/deja-vu)
 2. **Static injection, not retrieval.** Each host loads `MEMORY.md` through its own native mechanism at session start, so memory is simply *in context* - nothing to query, nothing to forget to call.
 3. **Handoff elimination.** Ships the [session-mining playbook](docs/mining.md) that distills existing agent history (claude-mem, Codex, opencode, ZCode) into curated `projects\<name>.md` state files, so a brand-new agent can continue any project cold.
 
-Plus small things that matter: **secret-pattern refusal at write time** (keys/tokens never enter memory files), a **doctor** command that verifies every wiring point, and managed `AGENTS.md` blocks that re-sync without clobbering user content.
+Plus small things that matter: **secret-pattern refusal at write time** (keys/tokens never enter memory files), a **doctor** command that verifies every wiring point, **`prune`** so the hot layer cannot grow forever, and a **test suite + CI** (pytest, Pester, shellcheck) you can point at.
 
 ## Install
 
@@ -48,6 +51,8 @@ Both installers are idempotent, back up every config they touch, and wire:
 5. Managed `AGENTS.md` blocks for Codex and ZCode (targets listed in `hosts.json`).
 6. Gemini CLI: add `@~/.agents/memory/MEMORY.md` to `~/.gemini/GEMINI.md` (one line, manual).
 
+Note: when patching `settings.json` / `opencode.json`, the installer rewrites the file through a JSON round-trip (formatting may change; comments are not valid in these files anyway). Every touched file is backed up as `*.bak-asm-*` first.
+
 ## Daily use
 
 Windows:
@@ -61,13 +66,14 @@ Linux / macOS / Git Bash: `bash ~/.agents/memory/tools/mem.sh <command>`
 
 ```text
 add -Text "fact" [-Hot] [-Project name]     append a durable fact (-Hot pins into MEMORY.md)
-search -Query "..."                          search the store
-doctor                                       verify every wiring point (exit 1 on problems)
+search -Query "..."                          search the store (skips files >1MB, caps output)
+prune [-Keep 50]                             trim the MEMORY.md hot log (timestamped backup kept)
+doctor                                       verify every wiring point; warns when MEMORY.md >150 lines
 sync                                         refresh embedded AGENTS.md copies
 ```
 
 - `add` refuses text that looks like a credential (API keys, tokens, JWTs, private keys). `-Force` overrides for confirmed false positives.
-- MCP tools (`memory_read`, `memory_search`, `memory_add`, `memory_projects`) are registered for Claude Code, Codex and opencode; any MCP client can run the server directly: `python tools/mem-mcp.py` (override store with `AI_MEMORY_DIR`).
+- MCP tools (`memory_read`, `memory_search`, `memory_add`, `memory_projects`, `memory_prune`) are registered for Claude Code, Codex and opencode; any MCP client can run the server directly: `python tools/mem-mcp.py` (override store with `AI_MEMORY_DIR`).
 
 ## Mining your history into handoff-free project files
 
@@ -80,6 +86,15 @@ python tools/dump/split_projects.py  --in mining/claude-mem-dump.md --outdir min
 ```
 
 All dumps are read-only. Codex (`~/.codex/memories/`) and ZCode (`~/.zcode/cli/memories/`) are already Markdown - point agents at those folders directly.
+
+## Tests
+
+CI runs on every push: pytest and Pester on Windows, `shellcheck` + `bash -n` on Linux (`.github/workflows/ci.yml`). Locally:
+
+```powershell
+python -m pytest -q tests                      # MCP server, secret guard, search guards, prune, dump tools
+powershell -Command "Invoke-Pester -Path tests" # mem.ps1: hot log, managed blocks, prune, doctor
+```
 
 ## Layout
 
@@ -117,8 +132,14 @@ examples\                MEMORY.template.md, PROJECT.template.md
 
 ## Uninstall
 
-Remove the hook from `~/.claude/settings.json`, the `ai_memory` entries from `opencode.json` / `config.toml`, the `AI-MEMORY` blocks from the `AGENTS.md` files in `hosts.json`, then delete the store. Backups from install are `*.bak-asm*`.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\uninstall.ps1 -DryRun   # preview
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\uninstall.ps1           # remove wiring
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\uninstall.ps1 -RemoveStore  # also delete the store
+```
+
+It reverses the Claude hook, the opencode `ai_memory` + instruction entry, the Codex `[mcp_servers.ai_memory]` section and the managed `AGENTS.md` blocks, keeping `*.bak-uninstall-*` backups of every touched file.
 
 ## License
 
-MIT
+MIT - see [CHANGELOG.md](CHANGELOG.md) for release history.
